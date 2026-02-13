@@ -67,7 +67,6 @@ class BallisticsApp:
         plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=10, pady=10)
         self.fig, self.ax = plt.subplots()
         
-        # ПОДПИСИ ОСЕЙ
         self.ax.set_title("Траектории полета тела в атмосфере")
         self.ax.set_xlabel("Дальность полета (метры)")
         self.ax.set_ylabel("Высота полета (метры)")
@@ -93,15 +92,13 @@ class BallisticsApp:
         
         x_pts, y_pts = [x], [y]
 
-        while y > 0 or (len(x_pts) == 1): # Пока тело выше земли
+        while y > 0 or (len(x_pts) == 1): 
             v = math.sqrt(vx**2 + vy**2)
             if y > max_h: max_h = y
             
-            # Расчет ускорений и новых скоростей
             vx_next = vx - k * vx * v * dt_val
             vy_next = vy - (self.G + k * vy * v) * dt_val
             
-            # Проверка: не упадет ли тело на следующем шаге?
             y_next = y + vy_next * dt_val
             
             if y_next < 0:
@@ -131,7 +128,6 @@ class BallisticsApp:
             messagebox.showerror("Ошибка", f"Проверьте ввод: {e}")
 
     def run_all_steps(self):
-        # Обязательно берем значения из этого списка
         steps = [1.0, 0.1, 0.01, 0.001, 0.0001]
         for dt in steps:
             self.execute_and_plot(dt)
