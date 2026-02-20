@@ -1,159 +1,179 @@
-import tkinter as tk
-from tkinter import ttk, messagebox
+import sys
 import math
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
+                             QHBoxLayout, QFormLayout, QLineEdit, QPushButton, 
+                             QTreeWidget, QTreeWidgetItem, QGroupBox, QMessageBox)
 
-class BallisticsApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Моделирование полета")
-        self.root.geometry("1250x800")
+class BallisticsApp(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Баллистический симулятор")
+        self.setMinimumSize(1200, 800)
         
         self.G = 9.81
         self.RHO = 1.225
+        self.color_map = {
+            1.0: '#007AFF',    
+            0.1: '#FF9500',    
+            0.01: '#34C759',   
+            0.001: '#FF3B30',  
+            0.0001: '#000000'  
+        }
 
         self.setup_ui()
-        self.setup_plot()
 
     def setup_ui(self):
-        control_frame = tk.Frame(self.root, width=420)
-        control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=10)
-        control_frame.pack_propagate(False)
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QHBoxLayout(central_widget)
 
-        input_frame = tk.LabelFrame(control_frame, text=" Параметры снаряда ", padx=10, pady=10)
-        input_frame.pack(side=tk.TOP, fill=tk.X, pady=5)
-
-        params = [
-            ("Нач. высота (м):", "0"),
-            ("Угол (град):", "45"),
-            ("Скорость (м/с):", "100"),
-            ("Площадь (S):", "0.01"),
-            ("Вес (кг):", "1.0"),
-            ("Коэф. сопр. (C):", "0.47"),
+        side_panel = QVBoxLayout()
+        side_panel.setContentsMargins(10, 10, 10, 10)
+        
+        params_group = QGroupBox("Параметры снаряда")
+        form_layout = QFormLayout()
+        
+        self.inputs = {}
+        fields = [
+            ("Нач. высота (м):", "0"), ("Угол (град):", "45"),
+            ("Скорость (м/с):", "100"), ("Площадь (S):", "0.01"),
+            ("Вес (кг):", "1.0"), ("Коэф. сопр. (C):", "0.47"),
             ("Шаг dt (с):", "0.01")
         ]
         
-        self.entries = {}
-        for i, (label, default) in enumerate(params):
-            row, col = i // 2, (i % 2) * 2
-            tk.Label(input_frame, text=label).grid(row=row, column=col, sticky="e", pady=2)
-            entry = tk.Entry(input_frame, width=10)
-            entry.insert(0, default)
-            entry.grid(row=row, column=col+1, padx=5, pady=2)
-            self.entries[label] = entry
+        for label_text, default in fields:
+            input_field = QLineEdit(default)
+            form_layout.addRow(label_text, input_field)
+            self.inputs[label_text] = input_field
+            
+        params_group.setLayout(form_layout)
+        side_panel.addWidget(params_group)
 
-        btn_frame = tk.Frame(control_frame)
-        btn_frame.pack(side=tk.TOP, fill=tk.X, pady=10)
+        self.btn_calc = QPushButton("РАССЧИТАТЬ")
+        self.btn_calc.clicked.connect(self.run_single)
+        self.btn_all = QPushButton("ЗАПУСТИТЬ ВСЕ ШАГИ")
+        self.btn_all.clicked.connect(self.run_all_steps)
+        self.btn_clear = QPushButton("ОЧИСТИТЬ ВСЕ")
+        self.btn_clear.clicked.connect(self.clear_all)
+
+        side_panel.addWidget(self.btn_calc)
+        side_panel.addWidget(self.btn_all)
+        side_panel.addWidget(self.btn_clear)
+
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels(["Шаг, с", "Дальность", "Высота", "V кон"])
+        self.tree.setColumnWidth(0, 60)
+        side_panel.addWidget(self.tree)
+
+        main_layout.addLayout(side_panel, 1)
+
+        self.figure, self.ax = plt.subplots(figsize=(8, 6), constrained_layout=True)
+        self.canvas = FigureCanvas(self.figure)
         
-        tk.Button(btn_frame, text="РАССЧИТАТЬ", command=self.run_single, bg="#4CAF50", fg="white", width=18).grid(row=0, column=0, padx=5, pady=5)
-        tk.Button(btn_frame, text="ЗАПУСТИТЬ ВСЕ ШАГИ", command=self.run_all_steps, bg="#2196F3", fg="white", width=18).grid(row=0, column=1, padx=5, pady=5)
-        tk.Button(btn_frame, text="Очистить таблицу", command=self.clear_table, width=18).grid(row=1, column=0, padx=5, pady=5)
-        tk.Button(btn_frame, text="Очистить график", command=self.clear_plot, width=18).grid(row=1, column=1, padx=5, pady=5)
-
-        columns = ("step", "dist", "height", "speed")
-        self.tree = ttk.Treeview(control_frame, columns=columns, show="headings")
-        self.tree.heading("step", text="Шаг, с")
-        self.tree.heading("dist", text="Дальность, м")
-        self.tree.heading("height", text="Высота, м")
-        self.tree.heading("speed", text="V кон, м/с")
-        self.tree.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=10)
-
-        for col in columns:
-            self.tree.column(col, width=85, anchor=tk.CENTER)
-
-    def setup_plot(self):
-        plot_frame = tk.Frame(self.root)
-        plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=10, pady=10)
-        self.fig, self.ax = plt.subplots()
+        self.ax.set_title("Траектория полета", fontsize=14, fontweight='bold')
+        self.ax.set_xlabel("Расстояние (м)")
+        self.ax.set_ylabel("Высота (м)")
+        self.ax.grid(True, linestyle=':', alpha=0.6)
         
-        self.ax.set_title("Траектории полета тела в атмосфере")
-        self.ax.set_xlabel("Дальность полета (метры)")
-        self.ax.set_ylabel("Высота полета (метры)")
-        self.ax.grid(True)
-        
-        self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
-        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        main_layout.addWidget(self.canvas, 3)
+
+    def get_float_val(self, key):
+        text = self.inputs[key].text().replace(',', '.').strip()
+        return float(text)
 
     def simulate(self, dt_val):
-        y0 = float(self.entries["Нач. высота (м):"].get())
-        alpha = math.radians(float(self.entries["Угол (град):"].get()))
-        v0 = float(self.entries["Скорость (м/с):"].get())
-        s_val = float(self.entries["Площадь (S):"].get())
-        m = float(self.entries["Вес (кг):"].get())
-        c_val = float(self.entries["Коэф. сопр. (C):"].get())
+        try:
+            y0 = self.get_float_val("Нач. высота (м):")
+            alpha = math.radians(self.get_float_val("Угол (град):"))
+            v0 = self.get_float_val("Скорость (м/с):")
+            s_val = self.get_float_val("Площадь (S):")
+            m = self.get_float_val("Вес (кг):")
+            c_val = self.get_float_val("Коэф. сопр. (C):")
+        except ValueError:
+            QMessageBox.warning(self, "Ошибка ввода", "Пожалуйста, введите корректные числа во все поля!")
+            return None
 
         k = (c_val * s_val * self.RHO) / (2 * m)
-
         x, y = 0.0, y0
-        vx = v0 * math.cos(alpha)
-        vy = v0 * math.sin(alpha)
-        max_h = y0
-        
+        vx, vy = v0 * math.cos(alpha), v0 * math.sin(alpha)
+        max_h = y
         x_pts, y_pts = [x], [y]
 
-        while y > 0 or (len(x_pts) == 1): 
+        max_steps = 500000 
+        steps = 0
+
+        while (y > 0 or len(x_pts) == 1) and steps < max_steps:
+            steps += 1
             v = math.sqrt(vx**2 + vy**2)
             if y > max_h: max_h = y
             
             vx_next = vx - k * vx * v * dt_val
             vy_next = vy - (self.G + k * vy * v) * dt_val
-            
             y_next = y + vy_next * dt_val
             
             if y_next < 0:
-                # Если падает, вычисляем долю шага до y=0
-                fraction = y / (y - y_next)
+                fraction = y / (y - y_next) if (y - y_next) != 0 else 0
                 x += vx_next * dt_val * fraction
                 y = 0.0
-                vx, vy = vx_next, vy_next
-                x_pts.append(x)
-                y_pts.append(y)
+                x_pts.append(x); y_pts.append(y)
                 break
             
             x += vx_next * dt_val
             y = y_next
             vx, vy = vx_next, vy_next
-
-            x_pts.append(x)
-            y_pts.append(y)
+            x_pts.append(x); y_pts.append(y)
             
+        if steps >= max_steps:
+             QMessageBox.warning(self, "Сбой физики", "Снаряд улетел слишком далеко. Проверьте параметры!")
+             return None
+
         return x_pts, y_pts, max_h, math.sqrt(vx**2 + vy**2)
 
-    def run_single(self):
-        try:
-            dt = float(self.entries["Шаг dt (с):"].get())
-            self.execute_and_plot(dt)
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Проверьте ввод: {e}")
-
-    def run_all_steps(self):
-        steps = [1.0, 0.1, 0.01, 0.001, 0.0001]
-        for dt in steps:
-            self.execute_and_plot(dt)
-
     def execute_and_plot(self, dt):
-        x_pts, y_pts, max_h, v_final = self.simulate(dt)
-        self.ax.plot(x_pts, y_pts, label=f"Шаг dt={dt}с")
-        self.ax.legend()
+        res = self.simulate(dt)
+        if not res: 
+            return 
+        
+        x_pts, y_pts, max_h, v_final = res
+        color = self.color_map.get(dt, '#5856D6') 
+        
+        self.ax.plot(x_pts, y_pts, label=f"dt={dt}s", color=color, linewidth=2)
+        
+        self.ax.legend(loc='upper left', bbox_to_anchor=(1.02, 1), frameon=False, fontsize=10)
+        
         self.ax.relim()
         self.ax.autoscale_view()
         self.canvas.draw()
-        self.tree.insert("", tk.END, values=(f"{dt}", f"{x_pts[-1]:.2f}", f"{max_h:.2f}", f"{v_final:.2f}"))
-        self.root.update()
+        
+        item = QTreeWidgetItem([str(dt), f"{x_pts[-1]:.2f}", f"{max_h:.2f}", f"{v_final:.2f}"])
+        self.tree.addTopLevelItem(item)
 
-    def clear_table(self):
-        for item in self.tree.get_children(): self.tree.delete(item)
+    def run_single(self):
+        try:
+            dt = self.get_float_val("Шаг dt (с):")
+            self.execute_and_plot(dt)
+        except ValueError:
+            QMessageBox.warning(self, "Ошибка", "Проверьте поле 'Шаг dt (с)'. Там должно быть число.")
 
-    def clear_plot(self):
+    def run_all_steps(self):
+        self.clear_all() 
+        for dt in [1.0, 0.1, 0.01, 0.001, 0.0001]:
+            self.execute_and_plot(dt)
+
+    def clear_all(self):
         self.ax.clear()
-        self.ax.set_title("Траектории полета тела в атмосфере")
-        self.ax.set_xlabel("Дальность полета (метры)")
-        self.ax.set_ylabel("Высота полета (метры)")
-        self.ax.grid(True)
+        self.ax.set_title("Траектория полета", fontsize=14, fontweight='bold')
+        self.ax.set_xlabel("Расстояние (м)")
+        self.ax.set_ylabel("Высота (м)")
+        self.ax.grid(True, linestyle=':', alpha=0.6)
         self.canvas.draw()
+        self.tree.clear()
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = BallisticsApp(root)
-    root.mainloop()
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion") 
+    window = BallisticsApp()
+    window.show()
+    sys.exit(app.exec())
