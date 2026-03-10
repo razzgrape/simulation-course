@@ -36,8 +36,6 @@ class SimulationConfig:
     slope_factor: float = 0.2          # множитель влияния уклона
     burn_duration: int = 2             # сколько шагов клетка горит перед выгоранием
 
-
-# 8 соседей и соответствующий индекс направления
 NEIGHBORS = [
     (-1,  0, 0),  # N
     (-1,  1, 1),  # NE
@@ -49,7 +47,6 @@ NEIGHBORS = [
     (-1, -1, 7),  # NW
 ]
 
-# Противоположные направления для расчёта ветра
 OPPOSITE_DIR = {0: 4, 1: 5, 2: 6, 3: 7, 4: 0, 5: 1, 6: 2, 7: 3}
 
 
@@ -61,9 +58,7 @@ class ForestFireSimulation:
         self.rows = config.rows
         self.cols = config.cols
 
-        # Основная сетка состояний
         self.grid = np.zeros((self.rows, self.cols), dtype=np.int8)
-        # Счётчик длительности горения
         self.burn_timer = np.zeros((self.rows, self.cols), dtype=np.int8)
 
         # Генератор высот 
@@ -76,18 +71,17 @@ class ForestFireSimulation:
         self.stats_history = []
 
     def _generate_elevation(self) -> np.ndarray:
-        """Генерация карты высот с помощью сглаженного шума."""
+        """Генерация карты высот"""
         noise = np.random.randn(self.rows // 8 + 1, self.cols // 8 + 1)
         from scipy.ndimage import zoom
         elevation = zoom(noise, (self.rows / (self.rows // 8 + 1),
                                   self.cols / (self.cols // 8 + 1)))
         elevation = elevation[:self.rows, :self.cols]
-        # Нормализация в [0, 1]
         elevation = (elevation - elevation.min()) / (elevation.max() - elevation.min() + 1e-9)
         return elevation
 
     def initialize_random(self, tree_density: float = 0.6):
-        """Случайная инициализация леса."""
+        """Случайная инициализация леса"""
         self.grid = np.zeros((self.rows, self.cols), dtype=np.int8)
         self.burn_timer = np.zeros((self.rows, self.cols), dtype=np.int8)
         tree_mask = np.random.random((self.rows, self.cols)) < tree_density
@@ -96,13 +90,13 @@ class ForestFireSimulation:
         self.stats_history = []
 
     def place_water(self, positions: list):
-        """Размещение водных преград."""
+        """Размещение водных преград"""
         for r, c in positions:
             if 0 <= r < self.rows and 0 <= c < self.cols:
                 self.grid[r, c] = CellState.WATER
 
     def add_water_river(self, col: int, width: int = 2):
-        """Добавить реку (вертикальную)."""
+        """Добавить реку"""
         for r in range(self.rows):
             for dc in range(width):
                 c = col + dc + int(2 * np.sin(r / 5.0))  # извилистость
@@ -119,16 +113,16 @@ class ForestFireSimulation:
     def _get_spread_probability(self, from_r: int, from_c: int,
                                   to_r: int, to_c: int, dir_idx: int) -> float:
         """
-        Рассчитать вероятность распространения огня от (from_r, from_c) к (to_r, to_c).
+        Рассчитать вероятность распространения огня.
         Учитывает: базовую вероятность, влажность, ветер, уклон.
         """
         prob = self.config.base_spread_prob
 
-        # --- Дополнительное правило 1: Влажность ---
+        # Доп правила намбер 1: Влажность 
         # Высокая влажность снижает вероятность
         prob *= (1.0 - self.config.humidity * 0.8)
 
-        # --- Дополнительное правило 2: Ветер ---
+        # Доп правило намбер 2: Ветер 
         if self.config.wind.enabled and self.config.wind.strength > 0:
             wind_dir = self.config.wind.direction
             # Если направление от горящей к целевой совпадает с ветром — бонус
@@ -143,7 +137,7 @@ class ForestFireSimulation:
             elif dir_idx == (OPPOSITE_DIR[wind_dir] + 1) % 8 or dir_idx == (OPPOSITE_DIR[wind_dir] - 1) % 8:
                 prob -= self.config.wind.strength * 0.3
 
-        # --- Дополнительное правило 3: Уклон местности ---
+        # Доп правило намбер фри: Уклон местности 
         if self.elevation is not None:
             dh = self.elevation[to_r, to_c] - self.elevation[from_r, from_c]
             # Огонь быстрее распространяется вверх по склону
@@ -162,7 +156,7 @@ class ForestFireSimulation:
                 state = self.grid[r, c]
 
                 if state == CellState.BURNING:
-                    # Правило 1: горящая клетка уменьшает таймер
+                    # Правило намбер уан: горящая клетка уменьшает таймер
                     new_burn[r, c] -= 1
                     if new_burn[r, c] <= 0:
                         new_grid[r, c] = CellState.BURNT
@@ -173,7 +167,7 @@ class ForestFireSimulation:
 
                 elif state == CellState.TREE:
                     ignited = False
-                    # Правило 2: проверяем соседей 
+                    # Правило намбер ту: проверяем соседей 
                     for dr, dc, dir_idx in NEIGHBORS:
                         nr, nc = r + dr, c + dc
                         if 0 <= nr < self.rows and 0 <= nc < self.cols:
@@ -187,14 +181,14 @@ class ForestFireSimulation:
                                     ignited = True
                                     break
 
-                    # Правило 3: молния
+                    # Правило намбер фри: молния
                     if not ignited:
                         if rng[r, c] < self.config.lightning_prob:
                             new_grid[r, c] = CellState.BURNING
                             new_burn[r, c] = self.config.burn_duration
 
                 elif state == CellState.EMPTY:
-                    # Правило 4: рост нового дерева
+                    # Правило намбер фо: рост нового дерева
                     if rng[r, c] < self.config.tree_grow_prob:
                         new_grid[r, c] = CellState.TREE
 
